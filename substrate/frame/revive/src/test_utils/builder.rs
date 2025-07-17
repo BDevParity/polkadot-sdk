@@ -50,6 +50,7 @@ macro_rules! builder {
 		#[allow(dead_code)]
 		impl<T: Config> $name<T>
 		where
+			T: pallet_transaction_payment::Config,
 			BalanceOf<T>: Into<sp_core::U256> + TryFrom<sp_core::U256>,
 			crate::MomentOf<T>: Into<sp_core::U256>,
 			T::Hash: frame_support::traits::IsType<sp_core::H256>,
@@ -139,6 +140,7 @@ builder!(
 		data: Vec<u8>,
 		salt: Option<[u8; 32]>,
 		bump_nonce: BumpNonce,
+		effective_gas_price: Option<U256>,
 	) -> ContractResult<InstantiateReturnValue, BalanceOf<T>>;
 
 	/// Set the call's evm_value using a native_value amount.
@@ -173,6 +175,7 @@ builder!(
 			data: vec![],
 			salt: Some([0; 32]),
 			bump_nonce: BumpNonce::Yes,
+			effective_gas_price: None,
 		}
 	}
 );
@@ -208,6 +211,7 @@ builder!(
 		gas_limit: Weight,
 		storage_deposit_limit: DepositLimit<BalanceOf<T>>,
 		data: Vec<u8>,
+		effective_gas_price: Option<U256>,
 	) -> ContractResult<ExecReturnValue, BalanceOf<T>>;
 
 	/// Set the call's evm_value using a native_value amount.
@@ -230,6 +234,7 @@ builder!(
 			gas_limit: GAS_LIMIT,
 			storage_deposit_limit: DepositLimit::Balance(deposit_limit::<T>()),
 			data: vec![],
+			effective_gas_price: None,
 		}
 	}
 );
@@ -242,6 +247,7 @@ builder!(
 		gas_limit: Weight,
 		storage_deposit_limit: BalanceOf<T>,
 		data: Vec<u8>,
+		effective_gas_price: U256,
 	) -> DispatchResultWithPostInfo;
 
 	/// Create a [`EthCallBuilder`] with default values.
@@ -253,6 +259,7 @@ builder!(
 			gas_limit: GAS_LIMIT,
 			storage_deposit_limit: deposit_limit::<T>(),
 			data: vec![],
+			effective_gas_price: 0u32.into(),
 		}
 	}
 );

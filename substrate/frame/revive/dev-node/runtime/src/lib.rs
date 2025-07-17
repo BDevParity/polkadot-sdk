@@ -30,7 +30,10 @@ use frame_support::weights::{
 	Weight,
 };
 use frame_system::limits::BlockWeights;
-use pallet_revive::{evm::runtime::EthExtra, AccountId32Mapper};
+use pallet_revive::{
+	evm::{fees::BlockRatioFee, runtime::EthExtra},
+	AccountId32Mapper,
+};
 use pallet_transaction_payment::{FeeDetails, RuntimeDispatchInfo};
 use polkadot_sdk::{
 	polkadot_sdk_frame::{
@@ -39,7 +42,7 @@ use polkadot_sdk::{
 	},
 	*,
 };
-use sp_weights::{ConstantMultiplier, IdentityFee};
+use sp_weights::ConstantMultiplier;
 
 pub use polkadot_sdk::{
 	parachains_common::{AccountId, Balance, BlockNumber, Hash, Header, Nonce, Signature},
@@ -311,8 +314,9 @@ parameter_types! {
 #[derive_impl(pallet_transaction_payment::config_preludes::TestDefaultConfig)]
 impl pallet_transaction_payment::Config for Runtime {
 	type OnChargeTransaction = pallet_transaction_payment::FungibleAdapter<Balances, ()>;
-	type WeightToFee = IdentityFee<Balance>;
+	type WeightToFee = BlockRatioFee<1, 1, Self>;
 	type LengthToFee = ConstantMultiplier<Balance, TransactionByteFee>;
+	type FeeMultiplierUpdate = polkadot_sdk::polkadot_runtime_common::SlowAdjustingFeeUpdate<Self>;
 }
 
 parameter_types! {

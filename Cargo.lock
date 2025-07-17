@@ -1341,6 +1341,7 @@ dependencies = [
  "pallet-assets",
  "pallet-revive",
  "pallet-revive-uapi",
+ "pallet-transaction-payment",
  "pallet-xcm",
  "parachains-common",
  "parity-scale-codec",

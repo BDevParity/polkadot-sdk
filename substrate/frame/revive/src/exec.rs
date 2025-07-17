@@ -53,7 +53,7 @@ use sp_core::{
 };
 use sp_io::{crypto::secp256k1_ecdsa_recover_compressed, hashing::blake2_256};
 use sp_runtime::{
-	traits::{BadOrigin, Bounded, Convert, Saturating, Zero},
+	traits::{BadOrigin, Bounded, Saturating, Zero},
 	DispatchError, SaturatedConversion,
 };
 
@@ -384,9 +384,6 @@ pub trait PrecompileExt: sealing::Sealed {
 	/// Returns the maximum allowed size of a storage item.
 	fn max_value_size(&self) -> u32;
 
-	/// Returns the price for the specified amount of weight.
-	fn get_weight_price(&self, weight: Weight) -> U256;
-
 	/// Get an immutable reference to the nested gas meter.
 	fn gas_meter(&self) -> &GasMeter<Self::T>;
 
@@ -420,6 +417,9 @@ pub trait PrecompileExt: sealing::Sealed {
 
 	/// Returns a mutable reference to the output of the last executed call frame.
 	fn last_frame_output_mut(&mut self) -> &mut ExecReturnValue;
+
+	/// Returns the effective gas price of this transaction.
+	fn effective_gas_price(&self) -> u64;
 }
 
 /// Describes the different functions that can be exported by an [`Executable`].
@@ -511,6 +511,8 @@ pub struct Stack<'a, T: Config, E> {
 	/// Whether or not actual transfer of funds should be performed.
 	/// This is set to `true` exclusively when we simulate a call through eth_transact.
 	skip_transfer: bool,
+	/// The gas price actually paid by the origin.
+	effective_gas_price: u64,
 	/// No executable is held by the struct but influences its behaviour.
 	_phantom: PhantomData<E>,
 }
@@ -738,7 +740,7 @@ impl<T: Config> CachedContract<T> {
 
 impl<'a, T, E> Stack<'a, T, E>
 where
-	T: Config,
+	T: Config + pallet_transaction_payment::Config,
 	BalanceOf<T>: Into<U256> + TryFrom<U256>,
 	MomentOf<T>: Into<U256>,
 	E: Executable<T>,
@@ -757,6 +759,7 @@ where
 		value: U256,
 		input_data: Vec<u8>,
 		skip_transfer: bool,
+		effective_gas_price: Option<U256>,
 	) -> ExecResult {
 		let dest = T::AddressMapper::to_account_id(&dest);
 		if let Some((mut stack, executable)) = Stack::<'_, T, E>::new(
@@ -766,6 +769,7 @@ where
 			storage_meter,
 			value,
 			skip_transfer,
+			effective_gas_price,
 		)? {
 			stack
 				.run(executable, input_data, BumpNonce::Yes)
@@ -809,6 +813,7 @@ where
 		salt: Option<&[u8; 32]>,
 		skip_transfer: bool,
 		bump_nonce: BumpNonce,
+		effective_gas_price: Option<U256>,
 	) -> Result<(H160, ExecReturnValue), ExecError> {
 		let deployer = T::AddressMapper::to_address(&origin);
 		let (mut stack, executable) = Stack::<'_, T, E>::new(
@@ -823,6 +828,7 @@ where
 			storage_meter,
 			value,
 			skip_transfer,
+			effective_gas_price,
 		)?
 		.expect(FRAME_ALWAYS_EXISTS_ON_INSTANTIATE);
 		let address = T::AddressMapper::to_address(&stack.top_frame().account_id);
@@ -856,6 +862,7 @@ where
 			storage_meter,
 			value.into(),
 			false,
+			None,
 		)
 		.unwrap()
 		.unwrap();
@@ -873,6 +880,7 @@ where
 		storage_meter: &'a mut storage::meter::Meter<T>,
 		value: U256,
 		skip_transfer: bool,
+		effective_gas_price: Option<U256>,
 	) -> Result<Option<(Self, ExecutableOrPrecompile<T, E, Self>)>, ExecError> {
 		origin.ensure_mapped()?;
 		let Some((first_frame, executable)) = Self::new_frame(
@@ -899,6 +907,9 @@ where
 			frames: Default::default(),
 			transient_storage: TransientStorage::new(limits::TRANSIENT_STORAGE_BYTES),
 			skip_transfer,
+			effective_gas_price: effective_gas_price
+				.unwrap_or_else(|| <Contracts<T>>::evm_gas_price())
+				.saturated_into(),
 			_phantom: Default::default(),
 		};
 
@@ -1576,7 +1587,7 @@ where
 
 impl<'a, T, E> Ext for Stack<'a, T, E>
 where
-	T: Config,
+	T: Config + pallet_transaction_payment::Config,
 	E: Executable<T>,
 	BalanceOf<T>: Into<U256> + TryFrom<U256>,
 	MomentOf<T>: Into<U256>,
@@ -1712,7 +1723,7 @@ where
 
 impl<'a, T, E> PrecompileWithInfoExt for Stack<'a, T, E>
 where
-	T: Config,
+	T: Config + pallet_transaction_payment::Config,
 	E: Executable<T>,
 	BalanceOf<T>: Into<U256> + TryFrom<U256>,
 	MomentOf<T>: Into<U256>,
@@ -1781,7 +1792,7 @@ where
 
 impl<'a, T, E> PrecompileExt for Stack<'a, T, E>
 where
-	T: Config,
+	T: Config + pallet_transaction_payment::Config,
 	E: Executable<T>,
 	BalanceOf<T>: Into<U256> + TryFrom<U256>,
 	MomentOf<T>: Into<U256>,
@@ -2016,10 +2027,6 @@ where
 		limits::PAYLOAD_BYTES
 	}
 
-	fn get_weight_price(&self, weight: Weight) -> U256 {
-		T::WeightPrice::convert(weight).into()
-	}
-
 	fn gas_meter(&self) -> &GasMeter<Self::T> {
 		&self.top_frame().nested_gas
 	}
@@ -2064,6 +2071,10 @@ where
 
 	fn last_frame_output_mut(&mut self) -> &mut ExecReturnValue {
 		&mut self.top_frame_mut().last_frame_output
+	}
+
+	fn effective_gas_price(&self) -> u64 {
+		self.effective_gas_price
 	}
 }
 

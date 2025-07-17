@@ -78,6 +78,7 @@ impl<
 		TransfersCheckingAccount,
 	>
 where
+	T: pallet_transaction_payment::Config,
 	BalanceOf<T>: Into<U256> + TryFrom<U256>,
 	MomentOf<T>: Into<U256>,
 	T::Hash: frame_support::traits::IsType<H256>,
@@ -128,6 +129,7 @@ where
 				gas_limit,
 				DepositLimit::Balance(StorageDepositLimit::get()),
 				data,
+				None,
 			);
 		// We need to return this surplus for the executor to allow refunding it.
 		let surplus = gas_limit.saturating_sub(gas_consumed);
@@ -186,6 +188,7 @@ where
 				gas_limit,
 				DepositLimit::Balance(StorageDepositLimit::get()),
 				data,
+				None,
 			);
 		// We need to return this surplus for the executor to allow refunding it.
 		let surplus = gas_limit.saturating_sub(gas_consumed);

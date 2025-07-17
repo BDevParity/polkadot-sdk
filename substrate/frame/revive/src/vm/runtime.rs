@@ -19,7 +19,6 @@
 
 use crate::{
 	address::AddressMapper,
-	evm::runtime::GAS_PRICE,
 	exec::{ExecError, ExecResult, Ext, Key},
 	gas::{ChargedAmount, Token},
 	limits,
@@ -304,8 +303,6 @@ pub enum RuntimeCosts {
 	Now,
 	/// Weight of calling `seal_gas_limit`.
 	GasLimit,
-	/// Weight of calling `seal_weight_to_fee`.
-	WeightToFee,
 	/// Weight of calling `seal_terminate`.
 	Terminate,
 	/// Weight of calling `seal_deposit_event` with the given number of topics and event size.
@@ -466,7 +463,6 @@ impl<T: Config> Token<T> for RuntimeCosts {
 			BaseFee => T::WeightInfo::seal_base_fee(),
 			Now => T::WeightInfo::seal_now(),
 			GasLimit => T::WeightInfo::seal_gas_limit(),
-			WeightToFee => T::WeightInfo::seal_weight_to_fee(),
 			Terminate => T::WeightInfo::seal_terminate(),
 			DepositEvent { num_topic, len } => T::WeightInfo::seal_deposit_event(num_topic, len),
 			SetStorage { new_bytes, old_bytes } => {
@@ -1595,27 +1591,6 @@ pub mod env {
 		)?)
 	}
 
-	/// Stores the price for the specified amount of weight into the supplied buffer.
-	/// See [`pallet_revive_uapi::HostFn::weight_to_fee`].
-	#[stable]
-	fn weight_to_fee(
-		&mut self,
-		memory: &mut M,
-		ref_time_limit: u64,
-		proof_size_limit: u64,
-		out_ptr: u32,
-	) -> Result<(), TrapReason> {
-		let weight = Weight::from_parts(ref_time_limit, proof_size_limit);
-		self.charge_gas(RuntimeCosts::WeightToFee)?;
-		Ok(self.write_fixed_sandbox_output(
-			memory,
-			out_ptr,
-			&self.ext.get_weight_price(weight).encode(),
-			false,
-			already_charged,
-		)?)
-	}
-
 	/// Stores the immutable data into the supplied buffer.
 	/// See [`pallet_revive_uapi::HostFn::get_immutable_data`].
 	#[stable]
@@ -1721,7 +1696,7 @@ pub mod env {
 	#[stable]
 	fn gas_price(&mut self, memory: &mut M) -> Result<u64, TrapReason> {
 		self.charge_gas(RuntimeCosts::GasPrice)?;
-		Ok(GAS_PRICE.into())
+		Ok(self.ext.effective_gas_price())
 	}
 
 	/// Returns the simulated ethereum `BASEFEE` value.

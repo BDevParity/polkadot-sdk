@@ -219,6 +219,7 @@ fn it_works() {
 				value.into(),
 				vec![],
 				false,
+				None,
 			),
 			Ok(_)
 		);
@@ -342,6 +343,7 @@ fn correct_transfer_on_call() {
 			evm_value.as_u64().into(),
 			vec![],
 			false,
+			None,
 		)
 		.unwrap();
 
@@ -382,6 +384,7 @@ fn correct_transfer_on_delegate_call() {
 			evm_value.as_u64().into(),
 			vec![],
 			false,
+			None,
 		));
 
 		assert_eq!(get_balance(&ALICE), 100 - value);
@@ -416,6 +419,7 @@ fn delegate_call_missing_contract() {
 			U256::zero(),
 			vec![],
 			false,
+			None,
 		));
 
 		// add missing contract code
@@ -428,6 +432,7 @@ fn delegate_call_missing_contract() {
 			U256::zero(),
 			vec![],
 			false,
+			None,
 		));
 	});
 }
@@ -456,6 +461,7 @@ fn changes_are_reverted_on_failing_call() {
 			55u64.into(),
 			vec![],
 			false,
+			None,
 		)
 		.unwrap();
 
@@ -514,6 +520,7 @@ fn output_is_returned_on_success() {
 			U256::zero(),
 			vec![],
 			false,
+			None,
 		);
 
 		let output = result.unwrap();
@@ -543,6 +550,7 @@ fn output_is_returned_on_failure() {
 			U256::zero(),
 			vec![],
 			false,
+			None,
 		);
 
 		let output = result.unwrap();
@@ -572,6 +580,7 @@ fn input_data_to_call() {
 			U256::zero(),
 			vec![1, 2, 3, 4],
 			false,
+			None,
 		);
 		assert_matches!(result, Ok(_));
 	});
@@ -605,6 +614,7 @@ fn input_data_to_instantiate() {
 				Some(&[0; 32]),
 				false,
 				BumpNonce::Yes,
+				None,
 			);
 			assert_matches!(result, Ok(_));
 		});
@@ -659,6 +669,7 @@ fn max_depth() {
 			value.into(),
 			vec![],
 			false,
+			None,
 		);
 
 		assert_matches!(result, Ok(_));
@@ -721,6 +732,7 @@ fn caller_returns_proper_values() {
 			U256::zero(),
 			vec![],
 			false,
+			None,
 		);
 
 		assert_matches!(result, Ok(_));
@@ -784,6 +796,7 @@ fn origin_returns_proper_values() {
 			U256::zero(),
 			vec![],
 			false,
+			None,
 		);
 
 		assert_matches!(result, Ok(_));
@@ -822,6 +835,7 @@ fn to_account_id_returns_proper_values() {
 			U256::zero(),
 			vec![0],
 			false,
+			None,
 		);
 		assert_matches!(result, Ok(_));
 	});
@@ -859,6 +873,7 @@ fn code_hash_returns_proper_values() {
 			U256::zero(),
 			vec![0],
 			false,
+			None,
 		);
 		assert_matches!(result, Ok(_));
 	});
@@ -885,6 +900,7 @@ fn own_code_hash_returns_proper_values() {
 			U256::zero(),
 			vec![0],
 			false,
+			None,
 		);
 		assert_matches!(result, Ok(_));
 	});
@@ -921,6 +937,7 @@ fn caller_is_origin_returns_proper_values() {
 			U256::zero(),
 			vec![0],
 			false,
+			None,
 		);
 		assert_matches!(result, Ok(_));
 	});
@@ -947,6 +964,7 @@ fn root_caller_succeeds() {
 			U256::zero(),
 			vec![0],
 			false,
+			None,
 		);
 		assert_matches!(result, Ok(_));
 	});
@@ -973,6 +991,7 @@ fn root_caller_does_not_succeed_when_value_not_zero() {
 			1u64.into(),
 			vec![0],
 			false,
+			None,
 		);
 		assert_matches!(result, Err(_));
 	});
@@ -1009,6 +1028,7 @@ fn root_caller_succeeds_with_consecutive_calls() {
 			U256::zero(),
 			vec![0],
 			false,
+			None,
 		);
 		assert_matches!(result, Ok(_));
 	});
@@ -1054,6 +1074,7 @@ fn address_returns_proper_values() {
 			U256::zero(),
 			vec![],
 			false,
+			None,
 		);
 
 		assert_matches!(result, Ok(_));
@@ -1080,6 +1101,7 @@ fn refuse_instantiate_with_value_below_existential_deposit() {
 				Some(&[0; 32]),
 				false,
 				BumpNonce::Yes,
+				None,
 			),
 			Err(_)
 		);
@@ -1114,6 +1136,7 @@ fn instantiation_work_with_success_output() {
 					Some(&[0 ;32]),
 					false,
 					BumpNonce::Yes,
+					None,
 				),
 				Ok((address, ref output)) if output.data == vec![80, 65, 83, 83] => address
 			);
@@ -1166,6 +1189,7 @@ fn instantiation_fails_with_failing_output() {
 					Some(&[0; 32]),
 					false,
 					BumpNonce::Yes,
+					None,
 				),
 				Ok((address, ref output)) if output.data == vec![70, 65, 73, 76] => address
 			);
@@ -1228,6 +1252,7 @@ fn instantiation_from_contract() {
 					Pallet::<Test>::convert_native_to_evm(min_balance * 10),
 					vec![],
 					false,
+					None,
 				),
 				Ok(_)
 			);
@@ -1297,6 +1322,7 @@ fn instantiation_traps() {
 					U256::zero(),
 					vec![],
 					false,
+					None,
 				),
 				Ok(_)
 			);
@@ -1331,6 +1357,7 @@ fn termination_from_instantiate_fails() {
 					Some(&[0; 32]),
 					false,
 					BumpNonce::Yes,
+					None,
 				),
 				Err(ExecError {
 					error: Error::<Test>::TerminatedInConstructor.into(),
@@ -1398,6 +1425,7 @@ fn in_memory_changes_not_discarded() {
 			U256::zero(),
 			vec![0],
 			false,
+			None,
 		);
 		assert_matches!(result, Ok(_));
 	});
@@ -1458,6 +1486,7 @@ fn recursive_call_during_constructor_is_balance_transfer() {
 				Some(&[0; 32]),
 				false,
 				BumpNonce::Yes,
+				None,
 			);
 			assert_matches!(result, Ok(_));
 		});
@@ -1504,6 +1533,7 @@ fn cannot_send_more_balance_than_available_to_self() {
 				U256::zero(),
 				vec![],
 				false,
+				None,
 			)
 			.unwrap();
 		});
@@ -1536,6 +1566,7 @@ fn call_reentry_direct_recursion() {
 			U256::zero(),
 			CHARLIE_ADDR.as_bytes().to_vec(),
 			false,
+			None,
 		));
 
 		// Calling into oneself fails
@@ -1548,6 +1579,7 @@ fn call_reentry_direct_recursion() {
 				U256::zero(),
 				BOB_ADDR.as_bytes().to_vec(),
 				false,
+				None,
 			)
 			.map_err(|e| e.error),
 			<Error<Test>>::ReentranceDenied,
@@ -1598,6 +1630,7 @@ fn call_deny_reentry() {
 				U256::zero(),
 				vec![0],
 				false,
+				None,
 			)
 			.map_err(|e| e.error),
 			<Error<Test>>::ReentranceDenied,
@@ -1685,6 +1718,7 @@ fn nonce() {
 				Some(&[0; 32]),
 				false,
 				BumpNonce::Yes,
+				None,
 			)
 			.ok();
 			assert_eq!(System::account_nonce(&ALICE), 0);
@@ -1699,6 +1733,7 @@ fn nonce() {
 				Some(&[0; 32]),
 				false,
 				BumpNonce::Yes,
+				None,
 			));
 			assert_eq!(System::account_nonce(&ALICE), 1);
 
@@ -1712,6 +1747,7 @@ fn nonce() {
 				Some(&[0; 32]),
 				false,
 				BumpNonce::Yes,
+				None,
 			));
 			assert_eq!(System::account_nonce(&ALICE), 2);
 
@@ -1725,6 +1761,7 @@ fn nonce() {
 				Some(&[0; 32]),
 				false,
 				BumpNonce::Yes,
+				None,
 			));
 			assert_eq!(System::account_nonce(&ALICE), 3);
 		});
@@ -1792,6 +1829,7 @@ fn set_storage_works() {
 			U256::zero(),
 			vec![],
 			false,
+			None,
 		));
 	});
 }
@@ -1890,6 +1928,7 @@ fn set_storage_varsized_key_works() {
 			U256::zero(),
 			vec![],
 			false,
+			None,
 		));
 	});
 }
@@ -1928,6 +1967,7 @@ fn get_storage_works() {
 			U256::zero(),
 			vec![],
 			false,
+			None,
 		));
 	});
 }
@@ -1966,6 +2006,7 @@ fn get_storage_size_works() {
 			U256::zero(),
 			vec![],
 			false,
+			None,
 		));
 	});
 }
@@ -2015,6 +2056,7 @@ fn get_storage_varsized_key_works() {
 			U256::zero(),
 			vec![],
 			false,
+			None,
 		));
 	});
 }
@@ -2064,6 +2106,7 @@ fn get_storage_size_varsized_key_works() {
 			U256::zero(),
 			vec![],
 			false,
+			None,
 		));
 	});
 }
@@ -2138,6 +2181,7 @@ fn set_transient_storage_works() {
 			U256::zero(),
 			vec![],
 			false,
+			None,
 		));
 	});
 }
@@ -2208,6 +2252,7 @@ fn get_transient_storage_works() {
 			U256::zero(),
 			vec![0],
 			false,
+			None,
 		);
 		assert_matches!(result, Ok(_));
 	});
@@ -2246,6 +2291,7 @@ fn get_transient_storage_size_works() {
 			U256::zero(),
 			vec![],
 			false,
+			None,
 		));
 	});
 }
@@ -2308,6 +2354,7 @@ fn rollback_transient_storage_works() {
 			U256::zero(),
 			vec![0],
 			false,
+			None,
 		);
 		assert_matches!(result, Ok(_));
 	});
@@ -2339,6 +2386,7 @@ fn ecdsa_to_eth_address_returns_proper_value() {
 			U256::zero(),
 			vec![],
 			false,
+			None,
 		);
 		assert_matches!(result, Ok(_));
 	});
@@ -2421,6 +2469,7 @@ fn last_frame_output_works_on_instantiate() {
 				U256::zero(),
 				vec![],
 				false,
+				None,
 			)
 			.unwrap()
 		});
@@ -2489,6 +2538,7 @@ fn last_frame_output_works_on_nested_call() {
 			U256::zero(),
 			vec![0],
 			false,
+			None,
 		);
 		assert_matches!(result, Ok(_));
 	});
@@ -2557,6 +2607,7 @@ fn last_frame_output_is_always_reset() {
 			U256::zero(),
 			vec![],
 			false,
+			None,
 		);
 		assert_matches!(result, Ok(_));
 	});
@@ -2606,6 +2657,7 @@ fn immutable_data_access_checks_work() {
 				U256::zero(),
 				vec![],
 				false,
+				None,
 			)
 			.unwrap()
 		});
@@ -2675,6 +2727,7 @@ fn correct_immutable_data_in_delegate_call() {
 				U256::zero(),
 				vec![],
 				false,
+				None,
 			)
 			.unwrap()
 		});
@@ -2715,6 +2768,7 @@ fn immutable_data_set_overrides() {
 				None,
 				false,
 				BumpNonce::Yes,
+				None,
 			)
 			.unwrap()
 			.0;
@@ -2727,6 +2781,7 @@ fn immutable_data_set_overrides() {
 				U256::zero(),
 				vec![],
 				false,
+				None,
 			)
 			.unwrap()
 		});
@@ -2773,6 +2828,7 @@ fn immutable_data_set_errors_with_empty_data() {
 				U256::zero(),
 				vec![],
 				false,
+				None,
 			)
 			.unwrap()
 		});
@@ -2828,6 +2884,7 @@ fn block_hash_returns_proper_values() {
 				U256::zero(),
 				vec![0],
 				false,
+				None,
 			),
 			Ok(_)
 		);

@@ -22,7 +22,10 @@ use self::test_utils::{ensure_stored, expected_deposit};
 use crate::{
 	self as pallet_revive,
 	address::{create1, create2, AddressMapper},
-	evm::{runtime::GAS_PRICE, CallTrace, CallTracer, CallType, GenericTransaction},
+	evm::{
+		fees::BlockRatioFee, runtime::SetWeightLimit, CallTrace, CallTracer, CallType,
+		GenericTransaction,
+	},
 	exec::Key,
 	limits,
 	storage::DeletionQueueManager,
@@ -30,9 +33,9 @@ use crate::{
 	tests::test_utils::{get_contract, get_contract_checked},
 	tracing::trace,
 	weights::WeightInfo,
-	AccountId32Mapper, AccountInfo, AccountInfoOf, BalanceOf, BalanceWithDust, BumpNonce, Code,
-	CodeInfoOf, Config, ContractInfo, DeletionQueueCounter, DepositLimit, Error, EthTransactError,
-	HoldReason, Origin, Pallet, PristineCode, H160,
+	AccountId32Mapper, AccountInfo, AccountInfoOf, BalanceOf, BalanceWithDust, BumpNonce, Call,
+	Code, CodeInfoOf, Config, ContractInfo, DeletionQueueCounter, DepositLimit, Error,
+	EthTransactError, HoldReason, Origin, Pallet, PristineCode, H160,
 };
 use assert_matches::assert_matches;
 use codec::Encode;
@@ -46,7 +49,7 @@ use frame_support::{
 		tokens::Preservation,
 		ConstU32, ConstU64, FindAuthor, OnIdle, OnInitialize, StorageVersion,
 	},
-	weights::{constants::WEIGHT_REF_TIME_PER_SECOND, FixedFee, IdentityFee, Weight, WeightMeter},
+	weights::{constants::WEIGHT_REF_TIME_PER_SECOND, FixedFee, Weight, WeightMeter},
 };
 use frame_system::{EventRecord, Phase};
 use pallet_revive_fixtures::compile_module;
@@ -240,7 +243,7 @@ impl Test {
 parameter_types! {
 	pub BlockWeights: frame_system::limits::BlockWeights =
 		frame_system::limits::BlockWeights::simple_max(
-			Weight::from_parts(2 * WEIGHT_REF_TIME_PER_SECOND, u64::MAX),
+			Weight::from_parts(2 * WEIGHT_REF_TIME_PER_SECOND, 10 * 1024 * 1024),
 		);
 	pub static ExistentialDeposit: u64 = 1;
 }
@@ -294,7 +297,7 @@ parameter_types! {
 #[derive_impl(pallet_transaction_payment::config_preludes::TestDefaultConfig)]
 impl pallet_transaction_payment::Config for Test {
 	type OnChargeTransaction = pallet_transaction_payment::FungibleAdapter<Balances, ()>;
-	type WeightToFee = IdentityFee<<Self as pallet_balances::Config>::Balance>;
+	type WeightToFee = BlockRatioFee<1, 1, Self>;
 	type LengthToFee = FixedFee<100, <Self as pallet_balances::Config>::Balance>;
 	type FeeMultiplierUpdate = ConstFeeMultiplier<FeeMultiplier>;
 }
@@ -371,13 +374,25 @@ impl Config for Test {
 	type Precompiles = (precompiles::WithInfo<Self>, precompiles::NoInfo<Self>);
 }
 
-impl TryFrom<RuntimeCall> for crate::Call<Test> {
+impl TryFrom<RuntimeCall> for Call<Test> {
 	type Error = ();
 
 	fn try_from(value: RuntimeCall) -> Result<Self, Self::Error> {
 		match value {
 			RuntimeCall::Contracts(call) => Ok(call),
 			_ => Err(()),
+		}
+	}
+}
+
+impl SetWeightLimit for RuntimeCall {
+	fn set_weight_limit(&mut self, weight_limit: Weight) {
+		match self {
+			Self::Contracts(
+				Call::eth_call { gas_limit, .. } |
+				Call::eth_instantiate_with_code { gas_limit, .. },
+			) => *gas_limit = weight_limit,
+			_ => (),
 		}
 	}
 }
@@ -3672,7 +3687,10 @@ fn gas_price_api_works() {
 		// Call the contract: It echoes back the value returned by the gas price API.
 		let received = builder::bare_call(addr).build_and_unwrap_result();
 		assert_eq!(received.flags, ReturnFlags::empty());
-		assert_eq!(u64::from_le_bytes(received.data[..].try_into().unwrap()), u64::from(GAS_PRICE));
+		assert_eq!(
+			u64::from_le_bytes(received.data[..].try_into().unwrap()),
+			u64::try_from(<Pallet<Test>>::evm_gas_price()).unwrap(),
+		);
 	});
 }
 

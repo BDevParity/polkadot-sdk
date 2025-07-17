@@ -53,6 +53,15 @@ impl<T> From<T> for DepositLimit<T> {
 	}
 }
 
+/// Defines various deposit limits.
+#[derive(Clone, Eq, PartialEq, Encode, Decode, RuntimeDebug, TypeInfo)]
+pub struct DepositBounds<Balance> {
+	/// Maximum deposit when calling an existing contract.
+	pub call: Balance,
+	/// Maximum deposit when deploying a new contract.
+	pub instantiate: Balance,
+}
+
 /// Result type of a `bare_call` or `bare_instantiate` call as well as `ContractsApi::call` and
 /// `ContractsApi::instantiate`.
 ///

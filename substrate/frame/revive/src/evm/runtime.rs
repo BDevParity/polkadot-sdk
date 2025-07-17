@@ -18,10 +18,10 @@
 use crate::{
 	evm::{
 		api::{GenericTransaction, TransactionSigned},
-		GasEncoder,
+		fees::BlockRatioWeightToFee,
 	},
 	AccountIdOf, AddressMapper, BalanceOf, Config, MomentOf, OnChargeTransactionBalanceOf, Pallet,
-	LOG_TARGET, RUNTIME_PALLETS_ADDR,
+	Zero, LOG_TARGET, RUNTIME_PALLETS_ADDR,
 };
 use alloc::vec::Vec;
 use codec::{Decode, DecodeLimit, DecodeWithMemTracking, Encode};
@@ -30,6 +30,7 @@ use frame_support::{
 	traits::{InherentBuilder, IsSubType, SignedTransactionBuilder},
 	MAX_EXTRINSIC_DEPTH,
 };
+use pallet_transaction_payment::Config as TxConfig;
 use scale_info::{StaticTypeInfo, TypeInfo};
 use sp_core::{Get, H256, U256};
 use sp_runtime::{
@@ -39,23 +40,16 @@ use sp_runtime::{
 		TransactionExtension,
 	},
 	transaction_validity::{InvalidTransaction, TransactionValidityError},
-	OpaqueExtrinsic, RuntimeDebug,
+	FixedPointNumber, FixedU128, OpaqueExtrinsic, RuntimeDebug, SaturatedConversion, Weight,
 };
 
 type CallOf<T> = <T as frame_system::Config>::RuntimeCall;
 
-/// The EVM gas price.
-/// This constant is used by the proxy to advertise it via the eth_gas_price RPC.
-///
-/// We use a fixed value for the gas price.
-/// This let us calculate the gas estimate for a transaction with the formula:
-/// `estimate_gas = substrate_fee / gas_price`.
-///
-/// The chosen constant value is:
-/// - Not too high, ensuring the gas value is large enough (at least 7 digits) to encode the
-///   ref_time, proof_size, and deposit into the less significant (6 lower) digits of the gas value.
-/// - Not too low, enabling users to adjust the gas price to define a tip.
-pub(crate) const GAS_PRICE: u64 = 1_000u64;
+/// Used to set the weight limit argument of a `eth_call` or `eth_instantiate_with_code` call.
+pub trait SetWeightLimit {
+	/// Set the weight limit of this call.
+	fn set_weight_limit(&mut self, weight_limit: Weight);
+}
 
 /// Wraps [`generic::UncheckedExtrinsic`] to support checking unsigned
 /// [`crate::Call::eth_transact`] extrinsic.
@@ -128,8 +122,10 @@ where
 	OnChargeTransactionBalanceOf<E::Config>: Into<BalanceOf<E::Config>>,
 	BalanceOf<E::Config>: Into<U256> + TryFrom<U256>,
 	MomentOf<E::Config>: Into<U256>,
-	CallOf<E::Config>: From<crate::Call<E::Config>> + IsSubType<crate::Call<E::Config>>,
+	CallOf<E::Config>:
+		From<crate::Call<E::Config>> + IsSubType<crate::Call<E::Config>> + SetWeightLimit,
 	<E::Config as frame_system::Config>::Hash: frame_support::traits::IsType<H256>,
+	<E::Config as TxConfig>::WeightToFee: BlockRatioWeightToFee<T = E::Config>,
 
 	// required by Checkable for `generic::UncheckedExtrinsic`
 	generic::UncheckedExtrinsic<LookupSource, CallOf<E::Config>, Signature, E::Extension>:
@@ -245,7 +241,7 @@ where
 /// EthExtra convert an unsigned [`crate::Call::eth_transact`] into a [`CheckedExtrinsic`].
 pub trait EthExtra {
 	/// The Runtime configuration.
-	type Config: Config + pallet_transaction_payment::Config;
+	type Config: Config + TxConfig;
 
 	/// The Runtime's transaction extension.
 	/// It should include at least:
@@ -286,8 +282,9 @@ pub trait EthExtra {
 		MomentOf<Self::Config>: Into<U256>,
 		<Self::Config as frame_system::Config>::RuntimeCall: Dispatchable<Info = DispatchInfo>,
 		OnChargeTransactionBalanceOf<Self::Config>: Into<BalanceOf<Self::Config>>,
-		CallOf<Self::Config>: From<crate::Call<Self::Config>>,
+		CallOf<Self::Config>: From<crate::Call<Self::Config>> + SetWeightLimit,
 		<Self::Config as frame_system::Config>::Hash: frame_support::traits::IsType<H256>,
+		<Self::Config as TxConfig>::WeightToFee: BlockRatioWeightToFee<T = Self::Config>,
 	{
 		let tx = TransactionSigned::decode(&payload).map_err(|err| {
 			log::debug!(target: LOG_TARGET, "Failed to decode transaction: {err:?}");
@@ -299,30 +296,40 @@ pub trait EthExtra {
 			InvalidTransaction::BadProof
 		})?;
 
-		let signer = <Self::Config as Config>::AddressMapper::to_fallback_account_id(&signer_addr);
-		let GenericTransaction { nonce, chain_id, to, value, input, gas, gas_price, .. } =
-			GenericTransaction::from_signed(tx, crate::GAS_PRICE.into(), None);
+		let base_fee = <Pallet<Self::Config>>::evm_gas_price();
 
-		let Some(gas) = gas else {
+		let signer = <Self::Config as Config>::AddressMapper::to_fallback_account_id(&signer_addr);
+		let tx = GenericTransaction::from_signed(tx, None);
+
+		let Some(gas) = tx.gas else {
 			log::debug!(target: LOG_TARGET, "No gas provided");
 			return Err(InvalidTransaction::Call);
 		};
 
-		if chain_id.unwrap_or_default() != <Self::Config as Config>::ChainId::get().into() {
+		let Some(effective_gas_price) = tx.effective_gas_price(base_fee) else {
+			log::debug!(target: LOG_TARGET, "No gas_price provided");
+			return Err(InvalidTransaction::Payment);
+		};
+
+		let chain_id = tx.chain_id.unwrap_or_default();
+
+		if chain_id != <Self::Config as Config>::ChainId::get().into() {
 			log::debug!(target: LOG_TARGET, "Invalid chain_id {chain_id:?}");
 			return Err(InvalidTransaction::Call);
 		}
 
-		let value = value.unwrap_or_default();
-		let data = input.to_vec();
+		if effective_gas_price < base_fee {
+			log::debug!(
+				target: LOG_TARGET,
+				"Specified gas_price is too low. effective_gas_price={effective_gas_price} base_fee={base_fee}"
+			);
+			return Err(InvalidTransaction::Payment);
+		}
 
-		let (gas_limit, storage_deposit_limit) =
-			<Self::Config as Config>::EthGasEncoder::decode(gas).ok_or_else(|| {
-				log::debug!(target: LOG_TARGET, "Failed to decode gas: {gas:?}");
-				InvalidTransaction::Call
-			})?;
+		let value = tx.value.unwrap_or_default();
+		let data = tx.input.to_vec();
 
-		let call = if let Some(dest) = to {
+		let (mut call, max_deposit) = if let Some(dest) = tx.to {
 			if dest == RUNTIME_PALLETS_ADDR {
 				let call = CallOf::<Self::Config>::decode_all_with_depth_limit(
 					MAX_EXTRINSIC_DEPTH,
@@ -338,16 +345,19 @@ pub trait EthExtra {
 					return Err(InvalidTransaction::Call)
 				}
 
-				call
+				(call, Zero::zero())
 			} else {
-				crate::Call::eth_call::<Self::Config> {
+				let storage_deposit_limit = <Self::Config as Config>::EthMaxDeposit::get().call;
+				let call = crate::Call::eth_call::<Self::Config> {
 					dest,
 					value,
-					gas_limit,
+					gas_limit: Zero::zero(),
 					storage_deposit_limit,
 					data,
+					effective_gas_price,
 				}
-				.into()
+				.into();
+				(call, storage_deposit_limit)
 			}
 		} else {
 			let blob = match polkavm::ProgramBlob::blob_length(&data) {
@@ -361,55 +371,73 @@ pub trait EthExtra {
 				return Err(InvalidTransaction::Call);
 			};
 
-			crate::Call::eth_instantiate_with_code::<Self::Config> {
+			let storage_deposit_limit = <Self::Config as Config>::EthMaxDeposit::get().instantiate;
+			let call = crate::Call::eth_instantiate_with_code::<Self::Config> {
 				value,
-				gas_limit,
+				gas_limit: Zero::zero(),
 				storage_deposit_limit,
 				code: code.to_vec(),
 				data: data.to_vec(),
+				effective_gas_price,
 			}
-			.into()
+			.into();
+
+			(call, storage_deposit_limit)
 		};
 
 		let mut info = call.get_dispatch_info();
-		let nonce = nonce.unwrap_or_default().try_into().map_err(|_| {
+		let nonce = tx.nonce.unwrap_or_default().try_into().map_err(|_| {
 			log::debug!(target: LOG_TARGET, "Failed to convert nonce");
 			InvalidTransaction::Call
 		})?;
-		let gas_price = gas_price.unwrap_or_default();
 
-		let eth_fee = Pallet::<Self::Config>::evm_gas_to_fee(gas, gas_price)
-			.map_err(|_| InvalidTransaction::Call)?;
-
-		// Fees calculated from the extrinsic, without the tip.
 		info.extension_weight = Self::get_eth_extension(nonce, 0u32.into()).weight(&call);
-		let actual_fee: BalanceOf<Self::Config> =
-			pallet_transaction_payment::Pallet::<Self::Config>::compute_fee(
-				encoded_len as u32,
-				&info,
-				Default::default(),
-			)
-			.into();
-		log::debug!(target: LOG_TARGET, "try_into_checked_extrinsic: gas_price: {gas_price:?}, encoded_len: {encoded_len:?} actual_fee: {actual_fee:?} eth_fee: {eth_fee:?}");
+		let extrinsic_gas: BalanceOf<Self::Config> = pallet_transaction_payment::Pallet::<
+			Self::Config,
+		>::compute_unadjusted_fee(
+			encoded_len as u32, &info
+		)
+		.into();
 
-		// The fees from the Ethereum transaction should be greater or equal to the actual fees paid
-		// by the account.
-		if eth_fee < actual_fee {
-			log::debug!(target: LOG_TARGET, "eth fees {eth_fee:?} too low, actual fees: {actual_fee:?}");
-			return Err(InvalidTransaction::Payment.into())
-		}
+		// the gas after accounting for the base gas that the extrinsic consumes
+		// this is the gas that is passed as as limit to the call
+		let gas_limit: u64 = gas
+			.checked_sub(extrinsic_gas.into())
+			.and_then(|gas| gas.checked_sub(max_deposit.into()))
+			.ok_or_else(|| {
+				log::debug!(target: LOG_TARGET, "Not enough gas supplied to cover the extrinsic base cost + storage deposit");
+				InvalidTransaction::Payment
+			})?
+			.saturated_into();
 
-		let tip =
-			Pallet::<Self::Config>::evm_gas_to_fee(gas, gas_price.saturating_sub(GAS_PRICE.into()))
-				.unwrap_or_default()
-				.min(actual_fee);
+		let weight_limit = <Self::Config as TxConfig>::WeightToFee::fee_to_weight(gas_limit);
+		call.set_weight_limit(weight_limit);
+
+		let tip = FixedU128::from_rational(
+			effective_gas_price.saturating_sub(base_fee).saturated_into(),
+			base_fee.saturated_into(),
+		)
+		.saturating_mul_int(<BalanceOf<Self::Config>>::saturated_from(gas));
 
 		crate::tracing::if_tracing(|tracer| {
 			tracer.watch_address(&Pallet::<Self::Config>::block_author().unwrap_or_default());
 			tracer.watch_address(&signer_addr);
 		});
 
-		log::debug!(target: LOG_TARGET, "Created checked Ethereum transaction with nonce: {nonce:?} and tip: {tip:?}");
+		log::debug!(target: LOG_TARGET, "\
+			Created checked Ethereum transaction with: \
+			gas={gas} \
+			extrinsic_gas={extrinsic_gas:?} \
+			max_deposit={max_deposit:?} \
+			gas_limit={gas_limit} \
+			weight_limit={weight_limit} \
+			effective_gas_price={effective_gas_price} \
+			base_fee={base_fee} \
+			tip={tip:?} \
+			nonce={nonce:?}
+			"
+		);
+
 		Ok(CheckedExtrinsic {
 			format: ExtrinsicFormat::Signed(signer.into(), Self::get_eth_extension(nonce, tip)),
 			function: call,
@@ -476,7 +504,6 @@ mod test {
 				tx: GenericTransaction {
 					from: Some(Account::default().address()),
 					chain_id: Some(<Test as Config>::ChainId::get().into()),
-					gas_price: Some(U256::from(GAS_PRICE)),
 					..Default::default()
 				},
 				before_validate: None,
@@ -498,17 +525,17 @@ mod test {
 						Extra::get_eth_extension(0, 0u32.into()).weight(&dispatch_call);
 					let uxt: Ex =
 						sp_runtime::generic::UncheckedExtrinsic::new_bare(eth_call).into();
-					pallet_transaction_payment::Pallet::<Test>::compute_fee(
+					pallet_transaction_payment::Pallet::<Test>::compute_unadjusted_fee(
 						uxt.encoded_size() as u32,
 						&info,
-						Default::default(),
 					)
 				},
 			);
 
+			self.tx.gas_price = Some(<Pallet<Test>>::evm_gas_price());
+
 			match dry_run {
 				Ok(dry_run) => {
-					log::debug!(target: LOG_TARGET, "Estimated gas: {:?}", dry_run.eth_gas);
 					self.tx.gas = Some(dry_run.eth_gas);
 				},
 				Err(err) => {
@@ -591,8 +618,7 @@ mod test {
 	fn check_eth_transact_call_works() {
 		let builder = UncheckedExtrinsicBuilder::call_with(H160::from([1u8; 20]));
 		let (call, _, tx) = builder.check().unwrap();
-		let (gas_limit, storage_deposit_limit) =
-			<<Test as Config>::EthGasEncoder as GasEncoder<_>>::decode(tx.gas.unwrap()).unwrap();
+		let effective_gas_price: u32 = <Test as Config>::NativeToEthRatio::get();
 
 		assert_eq!(
 			call,
@@ -600,8 +626,10 @@ mod test {
 				dest: tx.to.unwrap(),
 				value: tx.value.unwrap_or_default().as_u64().into(),
 				data: tx.input.to_vec(),
-				gas_limit,
-				storage_deposit_limit
+				// its a transfer to a non contract: does not use any gas
+				gas_limit: Zero::zero(),
+				storage_deposit_limit: <Test as Config>::EthMaxDeposit::get().call,
+				effective_gas_price: effective_gas_price.into(),
 			}
 			.into()
 		);
@@ -613,8 +641,7 @@ mod test {
 		let data = vec![];
 		let builder = UncheckedExtrinsicBuilder::instantiate_with(code.clone(), data.clone());
 		let (call, _, tx) = builder.check().unwrap();
-		let (gas_limit, storage_deposit_limit) =
-			<<Test as Config>::EthGasEncoder as GasEncoder<_>>::decode(tx.gas.unwrap()).unwrap();
+		let effective_gas_price: u32 = <Test as Config>::NativeToEthRatio::get();
 
 		assert_eq!(
 			call,
@@ -622,8 +649,9 @@ mod test {
 				value: tx.value.unwrap_or_default().as_u64().into(),
 				code,
 				data,
-				gas_limit,
-				storage_deposit_limit
+				gas_limit: Weight::from_parts(76370, 0),
+				storage_deposit_limit: <Test as Config>::EthMaxDeposit::get().instantiate,
+				effective_gas_price: effective_gas_price.into(),
 			}
 			.into()
 		);
@@ -710,9 +738,8 @@ mod test {
 					log::debug!(target: LOG_TARGET, "Gas price: {:?}", tx.gas_price);
 				}))
 				.unwrap();
-		let diff = tx.gas_price.unwrap() - U256::from(GAS_PRICE);
-		let expected_tip = crate::Pallet::<Test>::evm_gas_to_fee(tx.gas.unwrap(), diff).unwrap();
-		assert_eq!(extra.1.tip(), expected_tip);
+		let expected_tip = tx.gas.unwrap() * 3 / 100;
+		assert_eq!(U256::from(extra.1.tip()), expected_tip);
 	}
 
 	#[test]
