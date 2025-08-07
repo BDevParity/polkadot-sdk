@@ -31,24 +31,31 @@ use polkadot_sdk::{
 	*,
 };
 use revive_dev_runtime::{AccountId, Nonce, OpaqueBlock};
-use std::sync::Arc;
+use std::{sync::Arc, collections::BTreeMap,  time::Instant};
 
 use crate::cli::Consensus;
+use crate::snapshot::Snapshot;
 
 #[rpc(server, client)]
 pub trait HardhatRpc {
 	#[method(name = "hardhat_getAutomine")]
 	fn get_automine(&self) -> RpcResult<bool>;
+	#[method(name = "evm_revert")]
+	fn get_revert(&self) -> RpcResult<bool>;
+	#[method(name = "evm_snapshot")]
+	fn get_snapshot(&mut self) -> RpcResult<u64>;
 
 }
 
 pub struct HardhatRpcServerImpl {
 	consensus_type: Consensus,
+	next_snapshot_id: u64,
+	snapshots: BTreeMap<u64, Snapshot>,
 }
 
 impl HardhatRpcServerImpl {
 	pub fn new(consensus_type: Consensus) -> Self {
-		Self { consensus_type }
+		Self { consensus_type, next_snapshot_id: 0, snapshots: BTreeMap::new()}
 	}
 }
 
@@ -58,6 +65,27 @@ impl HardhatRpcServer for HardhatRpcServerImpl {
 			Consensus::InstantSeal => true,
 			_ => false,
 		})
+	}
+
+	fn get_revert(&self) -> RpcResult<bool> {
+		Ok(true)
+	}
+
+	fn get_snapshot(&mut self) -> RpcResult<u64> {
+		let id = self.next_snapshot_id;
+		self.next_snapshot_id += 1;
+
+		let snapshot = Snapshot {
+			block_number: 0,
+			block_time_offset_seconds: 0,
+			next_block_base_fee_per_gas: None,
+			next_block_timestamp: None,
+			time: Instant::now(),
+		};
+
+		self.snapshots.insert(id, snapshot.clone());
+
+		Ok(id)
 	}
 }
 
