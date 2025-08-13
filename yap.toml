@@ -1,0 +1,33 @@
+[relaychain]
+default_command = "./target/release/polkadot"
+default_args = [ "-lparachain=debug" ]
+chain = "rococo-local"
+
+	[[relaychain.nodes]]
+	name = "rut"
+	validator = true
+	rpc_port = 9942
+
+	[[relaychain.nodes]]
+	name = "ryan"
+	validator = true
+	rpc_port = 9943
+
+[[parachains]]
+id = 2001
+chain = "yap-rococo-local-2001"
+cumulus_based = true
+
+	# run alice as parachain collator
+	[[parachains.collators]]
+	name = "alice"
+	validator = true
+	command = "./target/release/polkadot-parachain"
+	args = ["-lparachain=debug"]
+
+	# run bob as parachain collator
+	[[parachains.collators]]
+	name = "bob"
+	validator = true
+	command = "./target/release/polkadot-parachain"
+	args = ["-lparachain=debug"]
