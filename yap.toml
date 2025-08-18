@@ -4,12 +4,12 @@ default_args = [ "-lparachain=debug" ]
 chain = "rococo-local"
 
 	[[relaychain.nodes]]
-	name = "rut"
+	name = "alice"
 	validator = true
 	rpc_port = 9942
 
 	[[relaychain.nodes]]
-	name = "ryan"
+	name = "bob"
 	validator = true
 	rpc_port = 9943
 
@@ -20,14 +20,14 @@ cumulus_based = true
 
 	# run alice as parachain collator
 	[[parachains.collators]]
-	name = "alice"
+	name = "petra"
 	validator = true
 	command = "./target/release/polkadot-parachain"
 	args = ["-lparachain=debug"]
 
 	# run bob as parachain collator
 	[[parachains.collators]]
-	name = "bob"
+	name = "patricia"
 	validator = true
 	command = "./target/release/polkadot-parachain"
 	args = ["-lparachain=debug"]
