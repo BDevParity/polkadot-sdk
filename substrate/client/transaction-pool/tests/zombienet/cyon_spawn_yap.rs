@@ -34,7 +34,7 @@ use zombienet_sdk::{
 };
 
 #[tokio::test(flavor = "multi_thread")]
-async fn slot_based_3cores_test() -> Result<(), anyhow::Error> {
+async fn cyon_spawn_yap() -> Result<(), anyhow::Error> {
 	let spawner = NetworkSpawner::with_closure(|| {
 		let images = zombienet_sdk::environment::get_images_from_env();
 		let names = ["alice", "bob", "charlie"];
@@ -71,6 +71,7 @@ async fn slot_based_3cores_test() -> Result<(), anyhow::Error> {
 				p.with_id(2200)
 					.with_default_command("polkadot-parachain")
 					.with_default_image(images.cumulus.as_str())
+					.with_chain_spec_path("tests/zombie_ci/warp-sync-parachain-spec.json")
 					.with_chain("yap-rococo-local-2200")
 					.with_genesis_overrides(json!({
 						"balances": {
@@ -124,11 +125,10 @@ async fn slot_based_3cores_test() -> Result<(), anyhow::Error> {
 
 	let mut duration = 10_000;
 	loop {
-
 		if duration < u64::max_value() / 2 {
 			duration *= 2;
 		}
-				tracing::info!("Sleeping for {}ms", duration);
+		tracing::info!("Sleeping for {}ms", duration);
 		sleep(tokio::time::Duration::from_millis(duration)).await;
 	}
 
