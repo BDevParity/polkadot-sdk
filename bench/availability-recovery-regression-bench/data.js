@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1755775810465,
+  "lastUpdate": 1755793307160,
   "repoUrl": "https://github.com/paritytech/polkadot-sdk",
   "entries": {
     "availability-recovery-regression-bench": [
@@ -67795,6 +67795,50 @@ window.BENCHMARK_DATA = {
           {
             "name": "test-environment",
             "value": 0.20112449169999996,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "egor@parity.io",
+            "name": "Egor_P",
+            "username": "EgorPopelyaev"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": false,
+          "id": "9969e1e81c94f2153412d647d92ecad8db3ccbf8",
+          "message": "[Backport] Version bumps and prdoc reordering from stable2506-1 (#9529)\n\nThis PR backport regular version bumps and prdocs reordering from the\nstable2506 branch back to master",
+          "timestamp": "2025-08-21T14:46:57Z",
+          "tree_id": "1c02f70053ccdced9c6f2f6a599c00d6076584ef",
+          "url": "https://github.com/paritytech/polkadot-sdk/commit/9969e1e81c94f2153412d647d92ecad8db3ccbf8"
+        },
+        "date": 1755793289895,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Received from peers",
+            "value": 307203,
+            "unit": "KiB"
+          },
+          {
+            "name": "Sent to peers",
+            "value": 1.6666666666666665,
+            "unit": "KiB"
+          },
+          {
+            "name": "availability-recovery",
+            "value": 11.265553792899999,
+            "unit": "seconds"
+          },
+          {
+            "name": "test-environment",
+            "value": 0.19411998893333332,
             "unit": "seconds"
           }
         ]
