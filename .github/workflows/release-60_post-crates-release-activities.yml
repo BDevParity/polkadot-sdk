@@ -146,6 +146,10 @@ jobs:
         run: |
           echo "Running taplo format check again..."
           taplo format --check --config .config/taplo.toml || echo "There are still formatting issues"
+      - name: Install Python dependencies
+        run: |
+          echo "Installing Python dependencies..."
+          pip3 install toml "cargo-workspace>=1.2.6"
       - name: Run workspace check
         run: |
           echo "Running workspace check..."
