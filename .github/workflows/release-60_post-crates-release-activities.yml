@@ -24,18 +24,40 @@ jobs:
   post-crates-activities:
     needs: set-image
     runs-on: ubuntu-latest
+    environment: release
+    env:
+      PGP_KMS_KEY: ${{ secrets.PGP_KMS_SIGN_COMMITS_KEY }}
+      PGP_KMS_HASH: ${{ secrets.PGP_KMS_HASH }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      AWS_DEFAULT_REGION: ${{ secrets.AWS_DEFAULT_REGION }}
     container:
       image: ${{ needs.set-image.outputs.IMAGE }}
 
     steps:
+      - name: Install pgpkms
+        run: |
+          # Install pgpkms that is used to sign commits
+          pip install git+https://github.com/paritytech-release/pgpkms.git@e7f806f99e9be5c52f0b4a536b7d4ef9c3e695ed
+
       - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
+      - name: Import GPG keys
+        run: |
+          . ./.github/scripts/common/lib.sh
+          import_gpg_keys
+
       - name: Configure git
         run: |
           git config --global --add safe.directory "${GITHUB_WORKSPACE}"
+          git config --global commit.gpgsign true
+          git config --global gpg.program /home/runner/.local/bin/pgpkms-git
+          git config --global user.name "ParityReleases"
+          git config --global user.email "release-team@parity.io"
+          git config --global user.signingKey "D8018FBB3F534D866A45998293C5FB5F6A367B51"
       - name: Bump NODE_VERSION for polkadot
         run: |
           echo "Checking current NODE_VERSION in polkadot..."
@@ -58,37 +80,22 @@ jobs:
       - name: Move prdocs to release folder
         shell: bash
         run: |
+          . ./.github/scripts/release/release_lib.sh
+
           # Extract release name from branch name (everything after "post-crates-release-")
           BRANCH_NAME="${{ github.ref_name }}"
           echo "Branch name: $BRANCH_NAME"
-          # Extract release folder name (everything after "post-crates-release-")
+
           if [[ "$BRANCH_NAME" =~ post-crates-release-(.+)$ ]]; then
             RELEASE_FOLDER="${BASH_REMATCH[1]}"
             echo "Release folder name: $RELEASE_FOLDER"
-            # Check if prdoc directory exists
-            if [ -d "prdoc" ]; then
-              # Create the release folder
-              mkdir -p "prdoc/$RELEASE_FOLDER"
-              echo "Created folder: prdoc/$RELEASE_FOLDER"
-              # Count pr_*.prdoc files
-              PRDOC_COUNT=$(find prdoc -maxdepth 1 -name "pr_*.prdoc" -type f | wc -l)
-              echo "Found $PRDOC_COUNT prdoc files to move"
-              # Move all pr_*.prdoc files to the release folder
-              if [ "$PRDOC_COUNT" -gt 0 ]; then
-                find prdoc -maxdepth 1 -name "pr_*.prdoc" -type f -exec mv {} "prdoc/$RELEASE_FOLDER/" \;
-                echo "Moved prdoc files to prdoc/$RELEASE_FOLDER/"
-                # List moved files
-                echo "Files in prdoc/$RELEASE_FOLDER/:"
-                ls -la "prdoc/$RELEASE_FOLDER/"
-              else
-                echo "No pr_*.prdoc files found to move"
-              fi
-            else
-              echo "WARNING: prdoc directory not found"
-            fi
+
+            # Use the reorder_prdocs helper function
+            reorder_prdocs "$RELEASE_FOLDER"
           else
             echo "WARNING: Could not extract release name from branch name: $BRANCH_NAME"
             echo "Expected format: post-crates-release-<release-name>"
+            exit 1
           fi
       - name: Replace path dependencies
         run: |
@@ -160,14 +167,24 @@ jobs:
         run: |
           echo "Checking for git dependencies..."
           python3 .github/scripts/deny-git-deps.py .
-      - name: Commit and push changes
+      - name: Check git status before commit
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
+          echo "=== Git status ==="
+          git status
+          echo ""
+          echo "=== Git status --porcelain ==="
+          git status --porcelain
+          echo ""
+          echo "=== Changed files count ==="
+          git status --porcelain | wc -l
+      - name: Commit and push changes
+        shell: bash
+        run: |
+          . ./.github/scripts/release/release_lib.sh
+
           # Check if there are changes to commit
           if [[ -n $(git status --porcelain) ]]; then
-            git add .
-            git commit -m "chore: post crates release actions"
+            commit_with_message "chore: post crates release actions - path deps, zepter, taplo"
             echo "Changes committed successfully"
             # Push changes to the branch
             echo "Pushing changes to branch..."
