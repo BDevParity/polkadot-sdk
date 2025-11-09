@@ -39,6 +39,9 @@ jobs:
         run: |
           # Install pgpkms that is used to sign commits
           pip install git+https://github.com/paritytech-release/pgpkms.git@e7f806f99e9be5c52f0b4a536b7d4ef9c3e695ed
+          # Find and display where pgpkms-git is installed
+          echo "pgpkms-git location: $(which pgpkms-git)"
+          ls -la $(which pgpkms-git)
 
       - name: Checkout
         uses: actions/checkout@v4
@@ -52,10 +55,14 @@ jobs:
           import_gpg_keys
 
       - name: Configure git
+        shell: bash
         run: |
           git config --global --add safe.directory "${GITHUB_WORKSPACE}"
           git config --global commit.gpgsign true
-          git config --global gpg.program /home/runner/.local/bin/pgpkms-git
+          # Dynamically find pgpkms-git path
+          PGPKMS_PATH=$(which pgpkms-git)
+          echo "Using pgpkms-git at: $PGPKMS_PATH"
+          git config --global gpg.program "$PGPKMS_PATH"
           git config --global user.name "ParityReleases"
           git config --global user.email "release-team@parity.io"
           git config --global user.signingKey "D8018FBB3F534D866A45998293C5FB5F6A367B51"
